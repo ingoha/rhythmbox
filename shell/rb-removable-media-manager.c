@@ -664,8 +664,10 @@ rb_removable_media_manager_add_mount (RBRemovableMediaManager *mgr, GMount *moun
 	RBSource *source = NULL;
 	GVolume *volume;
 	GFile *mount_root;
+	GFile *root;
 	char *mountpoint;
 	MPIDDevice *device_info;
+	gboolean is_afc = FALSE;
 
 	g_assert (mount != NULL);
 
@@ -677,21 +679,38 @@ rb_removable_media_manager_add_mount (RBRemovableMediaManager *mgr, GMount *moun
 	}
 	volume = g_mount_get_volume (mount);
 	if (volume == NULL) {
-		rb_debug ("Unhandled media, no volume for mount");
-		return;
+		/* handle special case: afc volumes and gvfs>1.28 */
+		root = g_mount_get_root (mount);
+		if (root != NULL && g_file_has_uri_scheme (root, "afc") != FALSE)
+		{
+			rb_debug ("Detected afc mount without volume");
+			is_afc = TRUE;
+			g_object_unref (root);
+		}
+		else
+		{
+			rb_debug ("Unhandled media, no volume for mount");
+			return;
+		}
 	}
 
-	/* if we've already created a source for the volume,
-	 * don't do anything with the mount.
-	 */
-	if (g_hash_table_lookup (priv->volume_mapping, volume) != NULL) {
-		rb_debug ("already created a source for the volume, so ignoring the mount");
+
+	/* skip this for afc mount (has no volume) */
+
+	if (is_afc != TRUE)
+	{
+		/* if we've already created a source for the volume,
+		 * don't do anything with the mount.
+		 */
+		if (g_hash_table_lookup (priv->volume_mapping, volume) != NULL) {
+			rb_debug ("already created a source for the volume, so ignoring the mount");
+			g_object_unref (volume);
+			return;
+		}
+
+		dump_volume_identifiers (volume);
 		g_object_unref (volume);
-		return;
 	}
-
-	dump_volume_identifiers (volume);
-	g_object_unref (volume);
 
 	/* look the device up in the device info database */
 	mount_root = g_mount_get_root (mount);
